@@ -224,6 +224,11 @@
     <option value="Ando Fleet">Ando Fleet</option>
   </select>
 
+  <div class="ctrl-sep"></div>
+
+  <label for="brand-filter">Brand</label>
+  <select id="brand-filter"><option value="all">All brands</option></select>
+
   <div id="status-bar">Loading…</div>
 </div>
 
@@ -252,6 +257,7 @@ async function loadAll() {
   );
   ALL_DATA = results.flat();
   populateDateFilter();
+  populateBrandFilter();
   render();
 }
 
@@ -264,16 +270,30 @@ function populateDateFilter() {
     opt.textContent = formatDate(d);
     sel.appendChild(opt);
   });
-  // Default to most recent date
   if (dates.length) sel.value = dates[0];
 }
 
+function populateBrandFilter() {
+  const brands = [...new Set(ALL_DATA.map(r => r['Brand Name']))].filter(Boolean).sort();
+  const sel = document.getElementById('brand-filter');
+  // Clear all except "All brands"
+  while (sel.options.length > 1) sel.remove(1);
+  brands.forEach(b => {
+    const opt = document.createElement('option');
+    opt.value = b;
+    opt.textContent = b;
+    sel.appendChild(opt);
+  });
+}
+
 function getFiltered() {
-  const dateVal = document.getElementById('date-filter').value;
-  const chanVal = document.getElementById('channel-filter').value;
+  const dateVal  = document.getElementById('date-filter').value;
+  const chanVal  = document.getElementById('channel-filter').value;
+  const brandVal = document.getElementById('brand-filter').value;
   return ALL_DATA.filter(r => {
-    if (dateVal !== 'all' && r['Order Date'] !== dateVal) return false;
-    if (chanVal !== 'all' && r['Delivery Channel'] !== chanVal) return false;
+    if (dateVal  !== 'all' && r['Order Date']        !== dateVal)  return false;
+    if (chanVal  !== 'all' && r['Delivery Channel']  !== chanVal)  return false;
+    if (brandVal !== 'all' && r['Brand Name']        !== brandVal) return false;
     return true;
   });
 }
@@ -568,6 +588,7 @@ function render() {
 // ─────────────────────────────────────────────
 document.getElementById('date-filter').addEventListener('change', render);
 document.getElementById('channel-filter').addEventListener('change', render);
+document.getElementById('brand-filter').addEventListener('change', render);
 
 // ─────────────────────────────────────────────
 //  BOOT
