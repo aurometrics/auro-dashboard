@@ -1250,18 +1250,6 @@
   {
     "Order Date":"2026-07-05",
     "Day":"Sunday.",
-    "Order ID":null,
-    "Brand Name":null,
-    "Delivery Distance":null,
-    "Order Hour":null,
-    "Prep Time":null,
-    "Delivery Time":null,
-    "E2E":0,
-    "Delivery Channel":"Uber Direct"
-  },
-  {
-    "Order Date":"2026-07-05",
-    "Day":"Sunday.",
     "Order ID":"23A61",
     "Brand Name":"Red Ginger",
     "Delivery Distance":3.4,
