@@ -426,11 +426,35 @@ function render() {
     .sort((a,b) => b.count - a.count)
     .slice(0, 8);
 
-  // Hourly
+  // Hourly volume
   const hours = {};
   for (let h = 10; h <= 22; h++) hours[h] = 0;
   data.forEach(r => { if (hours[r['Order Hour']] !== undefined) hours[r['Order Hour']]++; });
   const maxHour = Math.max(...Object.values(hours));
+
+  // Hourly delay analysis
+  const hourlyStats = {};
+  for (let h = 10; h <= 22; h++) hourlyStats[h] = { preps:[], delivs:[] };
+  data.forEach(r => {
+    const h = r['Order Hour'];
+    if (hourlyStats[h]) {
+      if (r['Prep Time'] != null)     hourlyStats[h].preps.push(r['Prep Time']);
+      if (r['Delivery Time'] != null) hourlyStats[h].delivs.push(r['Delivery Time']);
+    }
+  });
+  const overallAvgPrep  = round1(avg(preps));
+  const overallAvgDeliv = round1(avg(delivs));
+  const hourlyRows = Object.entries(hourlyStats)
+    .filter(([, v]) => v.preps.length > 0)
+    .map(([h, v]) => ({
+      hour:       parseInt(h),
+      orders:     v.preps.length,
+      avgPrep:    round1(avg(v.preps)),
+      avgDeliv:   round1(avg(v.delivs)),
+      prepDelay:  round1(avg(v.preps))  > overallAvgPrep,
+      delivDelay: round1(avg(v.delivs)) > overallAvgDeliv,
+    }))
+    .sort((a, b) => (b.avgPrep + b.avgDeliv) - (a.avgPrep + a.avgDeliv));
 
   // ── BUILD HTML ──
   dash.innerHTML = `
@@ -525,6 +549,42 @@ function render() {
             </div>
           </div>
         </div>
+      </div>
+    </div>
+
+    <!-- Hourly delays -->
+    <div class="section-label">Delay hotspots by hour</div>
+    <div class="card">
+      <div class="card-title">Avg prep &amp; delivery time per hour — hours above daily average are highlighted</div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr>
+            <th>Hour</th>
+            <th>Orders</th>
+            <th>Avg prep (min)</th>
+            <th>Avg delivery (min)</th>
+            <th>Combined (min)</th>
+            <th>Status</th>
+          </tr></thead>
+          <tbody>
+          ${hourlyRows.map(r => {
+            const bothHigh = r.prepDelay && r.delivDelay;
+            const eitherHigh = r.prepDelay || r.delivDelay;
+            return `<tr style="background:${bothHigh ? '#FFF5F5' : 'transparent'}">
+              <td style="font-weight:500">${r.hour}:00</td>
+              <td>${r.orders}</td>
+              <td style="color:${r.prepDelay ? 'var(--red-dark)' : 'var(--ink)'}; font-weight:${r.prepDelay ? '600' : '400'}">${r.avgPrep} ${r.prepDelay ? '▲' : ''}</td>
+              <td style="color:${r.delivDelay ? 'var(--red-dark)' : 'var(--ink)'}; font-weight:${r.delivDelay ? '600' : '400'}">${r.avgDeliv} ${r.delivDelay ? '▲' : ''}</td>
+              <td style="font-weight:500">${round1(r.avgPrep + r.avgDeliv)}</td>
+              <td>${bothHigh ? '<span class="badge badge-red">Both delayed</span>' : r.prepDelay ? '<span class="badge badge-red">Prep slow</span>' : r.delivDelay ? '<span class="badge badge-blue">Delivery slow</span>' : '<span style="color:var(--ink-3);font-size:11px">Normal</span>'}</td>
+            </tr>`;
+          }).join('')}
+          </tbody>
+        </table>
+      </div>
+      <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border);display:flex;gap:24px;font-size:12px;color:var(--ink-3);">
+        <span>▲ above daily average &nbsp;·&nbsp; Daily avg prep: <strong style="color:var(--ink)">${overallAvgPrep} min</strong></span>
+        <span>Daily avg delivery: <strong style="color:var(--ink)">${overallAvgDeliv} min</strong></span>
       </div>
     </div>
 
