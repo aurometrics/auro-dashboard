@@ -604,34 +604,22 @@ function render() {
     </div>
 
     <!-- Flagged outliers -->
-    <div class="section-label">Flagged orders ${outliers.length ? `<span style="color:var(--red);margin-left:6px;">${outliers.length} flagged</span>` : ''}</div>
+    <div class="section-label">Flagged orders ${outliers.length ? '<span style="color:var(--red);margin-left:6px;">' + outliers.length + ' flagged</span>' : ''}</div>
     <div class="card">
       ${outliers.length === 0
         ? '<div class="empty" style="padding:24px"><strong>No flagged orders</strong>All prep and delivery times are within expected ranges.</div>'
-        : `<div class="table-wrap"><table>
-        <thead><tr>
-          <th>Order ID</th><th>Brand</th><th>Date</th>
-          <th>Prep (min)</th><th>Delivery (min)</th><th>Channel</th><th>Flag</th>
-        </tr></thead>
-        <tbody>
-        ${outliers.map(r => {
-          const flags = [];
-          if (r['Prep Time'] > 60) flags.push('<span class="badge badge-red">Prep &gt; 60 min</span>');
-          if (r['Prep Time'] < 5)  flags.push('<span class="badge badge-red">Prep &lt; 5 min</span>');
-          if (r['Delivery Time'] < 5) flags.push('<span class="badge badge-blue">Delivery &lt; 5 min</span>');
-          return `<tr>
-            <td class="mono">${r['Order ID']}</td>
-            <td>${r['Brand Name'] || '—'}</td>
-            <td>${r['Order Date']}</td>
-            <td>${r['Prep Time'] ?? '—'}</td>
-            <td>${r['Delivery Time'] ?? '—'}</td>
-            <td>${r['Delivery Channel']}</td>
-            <td>${flags.join(' ')}</td>
-          </tr>`;
-        }).join('')}
-        </tbody></table></div>`
+        : (function(){
+            const rows = outliers.map(r => {
+              const flags = [];
+              if (r['Prep Time'] > 60) flags.push('<span class="badge badge-red">Prep &gt; 60 min</span>');
+              if (r['Prep Time'] < 5)  flags.push('<span class="badge badge-red">Prep &lt; 5 min</span>');
+              if (r['Delivery Time'] < 5) flags.push('<span class="badge badge-blue">Delivery &lt; 5 min</span>');
+              return '<tr><td class="mono">' + r['Order ID'] + '</td><td>' + (r['Brand Name']||'—') + '</td><td>' + r['Order Date'] + '</td><td>' + (r['Prep Time']??'—') + '</td><td>' + (r['Delivery Time']??'—') + '</td><td>' + r['Delivery Channel'] + '</td><td>' + flags.join(' ') + '</td></tr>';
+            }).join('');
+            return '<div class="table-wrap"><table><thead><tr><th>Order ID</th><th>Brand</th><th>Date</th><th>Prep (min)</th><th>Delivery (min)</th><th>Channel</th><th>Flag</th></tr></thead><tbody>' + rows + '</tbody></table></div>';
+          })()
       }
-    </div>
+    </div></div>
 
     <!-- Brand table -->
     <div class="section-label">Top brands by volume</div>
