@@ -189,6 +189,14 @@
     .card-grid-2, .card-grid-3 { grid-template-columns: 1fr; }
     .kpi-value { font-size: 22px; }
   }
+  @media print {
+    header { position: static; box-shadow: none; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .controls { display: none; }
+    main { padding: 0; }
+    .kpi { break-inside: avoid; }
+    .card { break-inside: avoid; page-break-inside: avoid; }
+    body { background: white; }
+  }
 </style>
 </head>
 <body>
@@ -212,8 +220,11 @@
 </header>
 
 <div class="controls">
-  <label for="date-filter">Date</label>
-  <select id="date-filter"><option value="all">All dates</option></select>
+  <label>Date range</label>
+  <input type="date" id="date-from" title="From date"/>
+  <span style="font-size:12px;color:#888;">to</span>
+  <input type="date" id="date-to" title="To date"/>
+  <button id="date-clear" style="font-size:11px;padding:5px 10px;border:1px solid var(--border);border-radius:6px;background:var(--white);color:var(--ink-3);cursor:pointer;">Clear</button>
 
   <div class="ctrl-sep"></div>
 
@@ -228,6 +239,11 @@
 
   <label for="brand-filter">Brand</label>
   <select id="brand-filter"><option value="all">All brands</option></select>
+
+  <div class="ctrl-sep"></div>
+
+  <button id="dl-csv" style="display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;padding:6px 14px;border:none;border-radius:6px;background:var(--red);color:#fff;cursor:pointer;">&#8595; Download CSV</button>
+  <button id="dl-print" style="font-size:12px;font-weight:600;padding:6px 14px;border:1px solid var(--border);border-radius:6px;background:var(--white);color:var(--ink-2);cursor:pointer;">&#9113; Print / PDF</button>
 
   <div id="status-bar">Loading…</div>
 </div>
@@ -284,15 +300,17 @@ async function loadAll() {
 }
 
 function populateDateFilter() {
-  const dates = [...new Set(ALL_DATA.map(r => r['Order Date']))].sort().reverse();
-  const sel = document.getElementById('date-filter');
-  dates.forEach(d => {
-    const opt = document.createElement('option');
-    opt.value = d;
-    opt.textContent = formatDate(d);
-    sel.appendChild(opt);
-  });
-  if (dates.length) sel.value = dates[0];
+  const dates = [...new Set(ALL_DATA.map(r => r['Order Date']))].sort();
+  if (!dates.length) return;
+  const minDate = dates[0];
+  const maxDate = dates[dates.length - 1];
+  document.getElementById('date-from').min = minDate;
+  document.getElementById('date-from').max = maxDate;
+  document.getElementById('date-to').min   = minDate;
+  document.getElementById('date-to').max   = maxDate;
+  // Default: show most recent date only
+  document.getElementById('date-from').value = maxDate;
+  document.getElementById('date-to').value   = maxDate;
 }
 
 function populateBrandFilter() {
@@ -309,13 +327,15 @@ function populateBrandFilter() {
 }
 
 function getFiltered() {
-  const dateVal  = document.getElementById('date-filter').value;
+  const fromVal  = document.getElementById('date-from').value;
+  const toVal    = document.getElementById('date-to').value;
   const chanVal  = document.getElementById('channel-filter').value;
   const brandVal = document.getElementById('brand-filter').value;
   return ALL_DATA.filter(r => {
-    if (dateVal  !== 'all' && r['Order Date']        !== dateVal)  return false;
-    if (chanVal  !== 'all' && r['Delivery Channel']  !== chanVal)  return false;
-    if (brandVal !== 'all' && r['Brand Name']        !== brandVal) return false;
+    if (fromVal && r['Order Date'] < fromVal) return false;
+    if (toVal   && r['Order Date'] > toVal)   return false;
+    if (chanVal  !== 'all' && r['Delivery Channel'] !== chanVal)  return false;
+    if (brandVal !== 'all' && r['Brand Name']       !== brandVal) return false;
     return true;
   });
 }
@@ -391,14 +411,19 @@ function render() {
   const dash = document.getElementById('dashboard');
   dash.style.display = 'block';
 
-  const dateVal = document.getElementById('date-filter').value;
-  const chanVal = document.getElementById('channel-filter').value;
+
 
   // Update header & status
+  const fromVal  = document.getElementById('date-from').value;
+  const toVal    = document.getElementById('date-to').value;
+  const chanVal  = document.getElementById('channel-filter').value;
+  const brandVal = document.getElementById('brand-filter').value;
   document.getElementById('header-date').textContent =
-    dateVal === 'all' ? 'All dates' : formatDate(dateVal);
+    (!fromVal && !toVal) ? 'All dates' :
+    (fromVal === toVal)  ? formatDate(fromVal) :
+    formatDate(fromVal) + ' → ' + formatDate(toVal);
   document.getElementById('status-bar').textContent =
-    `${data.length} orders · ${chanVal === 'all' ? 'All channels' : chanVal}`;
+    `${data.length} orders · ${chanVal === 'all' ? 'All channels' : chanVal}${brandVal !== 'all' ? ' · '+brandVal : ''}`;
 
   if (!data.length) {
     dash.innerHTML = '<div class="empty"><strong>No data for this selection</strong>Try a different date or channel filter.</div>';
@@ -613,22 +638,34 @@ function render() {
     </div>
 
     <!-- Flagged outliers -->
-    <div class="section-label">Flagged orders ${outliers.length ? '<span style="color:var(--red);margin-left:6px;">' + outliers.length + ' flagged</span>' : ''}</div>
+    <div class="section-label">Flagged orders ${outliers.length ? `<span style="color:var(--red);margin-left:6px;">${outliers.length} flagged</span>` : ''}</div>
     <div class="card">
       ${outliers.length === 0
         ? '<div class="empty" style="padding:24px"><strong>No flagged orders</strong>All prep and delivery times are within expected ranges.</div>'
-        : (function(){
-            const rows = outliers.map(r => {
-              const flags = [];
-              if (r['Prep Time'] > 60) flags.push('<span class="badge badge-red">Prep &gt; 60 min</span>');
-              if (r['Prep Time'] < 5)  flags.push('<span class="badge badge-red">Prep &lt; 5 min</span>');
-              if (r['Delivery Time'] < 5) flags.push('<span class="badge badge-blue">Delivery &lt; 5 min</span>');
-              return '<tr><td class="mono">' + r['Order ID'] + '</td><td>' + (r['Brand Name']||'—') + '</td><td>' + r['Order Date'] + '</td><td>' + (r['Prep Time']??'—') + '</td><td>' + (r['Delivery Time']??'—') + '</td><td>' + r['Delivery Channel'] + '</td><td>' + flags.join(' ') + '</td></tr>';
-            }).join('');
-            return '<div class="table-wrap"><table><thead><tr><th>Order ID</th><th>Brand</th><th>Date</th><th>Prep (min)</th><th>Delivery (min)</th><th>Channel</th><th>Flag</th></tr></thead><tbody>' + rows + '</tbody></table></div>';
-          })()
+        : `<div class="table-wrap"><table>
+        <thead><tr>
+          <th>Order ID</th><th>Brand</th><th>Date</th>
+          <th>Prep (min)</th><th>Delivery (min)</th><th>Channel</th><th>Flag</th>
+        </tr></thead>
+        <tbody>
+        ${outliers.map(r => {
+          const flags = [];
+          if (r['Prep Time'] > 60) flags.push('<span class="badge badge-red">Prep &gt; 60 min</span>');
+          if (r['Prep Time'] < 5)  flags.push('<span class="badge badge-red">Prep &lt; 5 min</span>');
+          if (r['Delivery Time'] < 5) flags.push('<span class="badge badge-blue">Delivery &lt; 5 min</span>');
+          return `<tr>
+            <td class="mono">${r['Order ID']}</td>
+            <td>${r['Brand Name'] || '—'}</td>
+            <td>${r['Order Date']}</td>
+            <td>${r['Prep Time'] ?? '—'}</td>
+            <td>${r['Delivery Time'] ?? '—'}</td>
+            <td>${r['Delivery Channel']}</td>
+            <td>${flags.join(' ')}</td>
+          </tr>`;
+        }).join('')}
+        </tbody></table></div>`
       }
-    </div></div>
+    </div>
 
     <!-- Brand table -->
     <div class="section-label">Top brands by volume</div>
@@ -656,9 +693,44 @@ function render() {
 // ─────────────────────────────────────────────
 //  EVENTS
 // ─────────────────────────────────────────────
-document.getElementById('date-filter').addEventListener('change', render);
+document.getElementById('date-from').addEventListener('change', render);
+document.getElementById('date-to').addEventListener('change', render);
 document.getElementById('channel-filter').addEventListener('change', render);
 document.getElementById('brand-filter').addEventListener('change', render);
+
+document.getElementById('date-clear').addEventListener('click', () => {
+  document.getElementById('date-from').value = '';
+  document.getElementById('date-to').value   = '';
+  render();
+});
+
+// ── CSV DOWNLOAD ──
+document.getElementById('dl-csv').addEventListener('click', () => {
+  const data = getFiltered();
+  if (!data.length) return;
+  const cols = ['Order Date','Day','Order ID','Brand Name','Delivery Distance','Order Hour','Prep Time','Delivery Time','E2E','Delivery Channel'];
+  const rows = [cols.join(',')];
+  data.forEach(r => {
+    rows.push(cols.map(c => {
+      const v = r[c] ?? '';
+      return String(v).includes(',') ? '"'+v+'"' : v;
+    }).join(','));
+  });
+  const blob = new Blob([rows.join('
+')], { type: 'text/csv' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  const from = document.getElementById('date-from').value;
+  const to   = document.getElementById('date-to').value;
+  const label = (from && to && from !== to) ? from+'_to_'+to : (from || 'all-dates');
+  a.href     = url;
+  a.download = 'ando-metrics-'+label+'.csv';
+  a.click();
+  URL.revokeObjectURL(url);
+});
+
+// ── PRINT / PDF ──
+document.getElementById('dl-print').addEventListener('click', () => window.print());
 
 // ─────────────────────────────────────────────
 //  BOOT
