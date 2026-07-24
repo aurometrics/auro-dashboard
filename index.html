@@ -266,12 +266,20 @@ const DATA_FILES = [
   'data/2026-07-04.json',
   'data/2026-07-05.json',
   'data/2026-07-06.json',
-  'data/2026-07-07.json',
   'data/2026-07-08.json',
   'data/2026-07-09.json',
   'data/2026-07-10.json',
   'data/2026-07-11.json',
   'data/2026-07-12.json',
+  'data/2026-07-13.json',
+  'data/2026-07-14.json',
+  'data/2026-07-15.json',
+  'data/2026-07-16.json',
+  'data/2026-07-17.json',
+  'data/2026-07-18.json',
+  'data/2026-07-19.json',
+  'data/2026-07-20.json',
+  'data/2026-07-21.json',
   // add new lines here as you upload each day
 ];
 
@@ -281,13 +289,32 @@ const DATA_FILES = [
 let ALL_DATA = [];
 
 async function loadAll() {
-  const results = await Promise.all(
-    DATA_FILES.map(f => fetch(f).then(r => r.ok ? r.json() : []).catch(() => []))
-  );
-  ALL_DATA = results.flat();
-  populateDateFilter();
-  populateBrandFilter();
-  render();
+  try {
+    const results = await Promise.all(
+      DATA_FILES.map(f =>
+        fetch(f)
+          .then(r => r.ok ? r.json() : [])
+          .catch(() => [])
+      )
+    );
+    ALL_DATA = results.flat();
+    if (!ALL_DATA.length) {
+      document.getElementById('loading').style.display = 'none';
+      document.getElementById('dashboard').style.display = 'block';
+      document.getElementById('dashboard').innerHTML =
+        '<div class="empty"><strong>No data files found</strong>Check that JSON files are uploaded to the data/ folder.</div>';
+      document.getElementById('status-bar').textContent = 'No data loaded';
+      return;
+    }
+    populateDateFilter();
+    populateBrandFilter();
+    render();
+  } catch(err) {
+    document.getElementById('loading').style.display = 'none';
+    document.getElementById('dashboard').style.display = 'block';
+    document.getElementById('dashboard').innerHTML =
+      '<div class="empty"><strong>Error loading data</strong>' + err.message + '</div>';
+  }
 }
 
 function populateDateFilter() {
@@ -707,8 +734,7 @@ document.getElementById('dl-csv').addEventListener('click', () => {
       return String(v).includes(',') ? '"'+v+'"' : v;
     }).join(','));
   });
-  const blob = new Blob([rows.join('
-')], { type: 'text/csv' });
+  const blob = new Blob([rows.join('\n')], { type: 'text/csv' });
   const url  = URL.createObjectURL(blob);
   const a    = document.createElement('a');
   const from = document.getElementById('date-from').value;
