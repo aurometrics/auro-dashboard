@@ -1598,18 +1598,6 @@
   {
     "Order Date":"2026-08-17",
     "Day":"Monday. ",
-    "Order ID":"234514",
-    "Brand Name":"The Box",
-    "Delivery Distance":4.2,
-    "Order Hour":15,
-    "Prep Time":27,
-    "Delivery Time":9,
-    "E2E":36,
-    "Delivery Channel":"Ando Fleet"
-  },
-  {
-    "Order Date":"2026-08-17",
-    "Day":"Monday. ",
     "Order ID":"24C10",
     "Brand Name":"Vegi Veg",
     "Delivery Distance":6.0,
