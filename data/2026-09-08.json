@@ -662,18 +662,6 @@
   {
     "Order Date":"2026-09-08",
     "Day":"Tuesday",
-    "Order ID":"2BA01",
-    "Brand Name":"Marty's Famous Burgers, Westlands",
-    "Delivery Distance":1.001,
-    "Order Hour":13,
-    "Prep Time":17.0,
-    "Delivery Time":6.0,
-    "E2E":23.0,
-    "Delivery Channel":"Uber Direct"
-  },
-  {
-    "Order Date":"2026-09-08",
-    "Day":"Tuesday",
     "Order ID":"CFFE2",
     "Brand Name":"Matam Barbacue and Drinks",
     "Delivery Distance":3.559,
