@@ -441,6 +441,174 @@ function heatColor(val, max) {
 }
 
 // ─────────────────────────────────────────────
+//  TREND / COMPARATIVE ANALYSIS HELPERS
+// ─────────────────────────────────────────────
+function median(arr) {
+  const vals = arr.filter(v => v != null).slice().sort((a,b) => a-b);
+  if (!vals.length) return 0;
+  const mid = Math.floor(vals.length / 2);
+  return vals.length % 2 ? vals[mid] : (vals[mid-1] + vals[mid]) / 2;
+}
+
+function monthKey(dateStr) { return dateStr.slice(0,7); }
+function monthLabel(key) {
+  const [y,m] = key.split('-');
+  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  return `${months[parseInt(m)-1]} ${y}`;
+}
+function shortDate(iso) {
+  const [,m,d] = iso.split('-');
+  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  return `${parseInt(d)} ${months[parseInt(m)-1]}`;
+}
+
+// ISO-8601 week: Monday-start, key = "YYYY-Www", weekStart = Monday's date
+function isoWeekInfo(dateStr) {
+  const d = new Date(dateStr + 'T00:00:00');
+  const dayNr = (d.getDay() + 6) % 7; // Mon=0 .. Sun=6
+  const thursday = new Date(d);
+  thursday.setDate(d.getDate() - dayNr + 3);
+  const yearStart = new Date(thursday.getFullYear(), 0, 1);
+  const week = Math.ceil((((thursday - yearStart) / 86400000) + 1) / 7);
+  const monday = new Date(d);
+  monday.setDate(d.getDate() - dayNr);
+  return {
+    key: `${thursday.getFullYear()}-W${String(week).padStart(2,'0')}`,
+    weekStart: monday.toISOString().slice(0,10)
+  };
+}
+
+function rollingAvg(values, window) {
+  return values.map((_, i) => {
+    const start = Math.max(0, i - window + 1);
+    return round1(avg(values.slice(start, i + 1)));
+  });
+}
+
+function pctChange(cur, prev) {
+  if (!prev) return null;
+  return ((cur - prev) / prev) * 100;
+}
+
+// Change badge — for time-based metrics (prep/delivery/E2E) a decrease is
+// the improvement, so pass invert=true; for volume metrics an increase is
+// the improvement, so invert=false.
+function changeBadge(cur, prev, invert) {
+  const delta = pctChange(cur, prev);
+  if (delta === null || !isFinite(delta)) return '<span style="color:var(--ink-3);font-weight:500">—</span>';
+  if (Math.abs(delta) < 0.05) return '<span style="color:var(--ink-3);font-weight:500">– flat</span>';
+  const improved = invert ? delta < 0 : delta > 0;
+  const arrow = delta > 0 ? '▲' : '▼';
+  const color = improved ? '#1A8A3C' : 'var(--red-dark)';
+  return `<span style="color:${color};font-weight:600">${arrow} ${round1(Math.abs(delta))}%</span>`;
+}
+
+// Stats for an arbitrary slice of records (already filtered by channel/brand)
+function periodStats(data, fromStr, toStr) {
+  const rows = data.filter(r => r['Order Date'] >= fromStr && r['Order Date'] <= toStr);
+  const preps  = rows.map(r => r['Prep Time']).filter(v => v != null);
+  const delivs = rows.map(r => r['Delivery Time']).filter(v => v != null);
+  const e2es   = rows.map(r => r['E2E']).filter(v => v != null);
+  return {
+    orders: rows.length,
+    avgPrep: avg(preps),   medPrep: median(preps),
+    avgDeliv: avg(delivs), medDeliv: median(delivs),
+    avgE2E: avg(e2es),     medE2E: median(e2es),
+  };
+}
+
+// Compares the most recent `windowDays` of data against the `windowDays`
+// immediately before it, anchored on the latest date present (not "today"),
+// since daily uploads can lag behind the calendar.
+function windowComparison(data, windowDays) {
+  const dates = [...new Set(data.map(r => r['Order Date']))].sort();
+  if (!dates.length) return null;
+  const maxDate  = dates[dates.length - 1];
+  const end      = new Date(maxDate + 'T00:00:00');
+  const curStart = new Date(end);      curStart.setDate(end.getDate() - windowDays + 1);
+  const prevEnd  = new Date(curStart); prevEnd.setDate(curStart.getDate() - 1);
+  const prevStart= new Date(prevEnd);  prevStart.setDate(prevEnd.getDate() - windowDays + 1);
+  const iso = d => d.toISOString().slice(0,10);
+  return {
+    curFrom: iso(curStart), curTo: maxDate,
+    prevFrom: iso(prevStart), prevTo: iso(prevEnd),
+    cur:  periodStats(data, iso(curStart), maxDate),
+    prev: periodStats(data, iso(prevStart), iso(prevEnd)),
+    hasPrev: dates[0] <= iso(prevStart),
+  };
+}
+
+function buildDailySeries(data) {
+  const byDate = {};
+  data.forEach(r => {
+    const d = r['Order Date'];
+    if (!byDate[d]) byDate[d] = { preps:[], delivs:[], e2es:[], count:0 };
+    byDate[d].count++;
+    if (r['Prep Time']     != null) byDate[d].preps.push(r['Prep Time']);
+    if (r['Delivery Time'] != null) byDate[d].delivs.push(r['Delivery Time']);
+    if (r['E2E']           != null) byDate[d].e2es.push(r['E2E']);
+  });
+  return Object.keys(byDate).sort().map(d => ({
+    date: d,
+    orders: byDate[d].count,
+    avgPrep: round1(avg(byDate[d].preps)),
+    avgDeliv: round1(avg(byDate[d].delivs)),
+    avgE2E: round1(avg(byDate[d].e2es)),
+    medPrep: round1(median(byDate[d].preps)),
+    medDeliv: round1(median(byDate[d].delivs)),
+  }));
+}
+
+function buildWeeklySeries(data) {
+  const byWeek = {};
+  data.forEach(r => {
+    const info = isoWeekInfo(r['Order Date']);
+    if (!byWeek[info.key]) byWeek[info.key] = { weekStart: info.weekStart, preps:[], delivs:[], e2es:[], count:0 };
+    byWeek[info.key].count++;
+    if (r['Prep Time']     != null) byWeek[info.key].preps.push(r['Prep Time']);
+    if (r['Delivery Time'] != null) byWeek[info.key].delivs.push(r['Delivery Time']);
+    if (r['E2E']           != null) byWeek[info.key].e2es.push(r['E2E']);
+  });
+  return Object.entries(byWeek).map(([key, v]) => ({
+    key, weekStart: v.weekStart, orders: v.count,
+    avgPrep: avg(v.preps),   medPrep: median(v.preps),
+    avgDeliv: avg(v.delivs), medDeliv: median(v.delivs),
+    avgE2E: avg(v.e2es),
+  })).sort((a,b) => a.weekStart.localeCompare(b.weekStart));
+}
+
+function buildMonthlySeries(data) {
+  const byMonth = {};
+  data.forEach(r => {
+    const key = monthKey(r['Order Date']);
+    if (!byMonth[key]) byMonth[key] = { preps:[], delivs:[], e2es:[], count:0 };
+    byMonth[key].count++;
+    if (r['Prep Time']     != null) byMonth[key].preps.push(r['Prep Time']);
+    if (r['Delivery Time'] != null) byMonth[key].delivs.push(r['Delivery Time']);
+    if (r['E2E']           != null) byMonth[key].e2es.push(r['E2E']);
+  });
+  return Object.entries(byMonth).map(([key, v]) => ({
+    key, orders: v.count,
+    avgPrep: avg(v.preps),   medPrep: median(v.preps),
+    avgDeliv: avg(v.delivs), medDeliv: median(v.delivs),
+    avgE2E: avg(v.e2es),
+  })).sort((a,b) => a.key.localeCompare(b.key));
+}
+
+// Channel/brand filters apply, but the date range picker does not — trends
+// are always computed across the full history so WoW/MoM comparisons and
+// long-run charts aren't clipped to whatever single day is selected above.
+function getFilteredForTrends() {
+  const chanVal  = document.getElementById('channel-filter').value;
+  const brandVal = document.getElementById('brand-filter').value;
+  return ALL_DATA.filter(r => {
+    if (chanVal  !== 'all' && r['Delivery Channel'] !== chanVal)  return false;
+    if (brandVal !== 'all' && r['Brand Name']       !== brandVal) return false;
+    return true;
+  });
+}
+
+// ─────────────────────────────────────────────
 //  CHARTS (Chart.js)
 // ─────────────────────────────────────────────
 const chartInstances = {};
@@ -479,6 +647,64 @@ function distChart(id, data, color) {
     [{ data: Object.values(buckets), backgroundColor: colors, borderRadius: 4, borderSkipped: false }],
     { tooltip: { callbacks: { label: c => ' '+c.parsed.y+' orders' } } }
   );
+}
+
+function trendLineChart(id, daily) {
+  if (chartInstances[id]) chartInstances[id].destroy();
+  const ctx = document.getElementById(id);
+  if (!ctx) return;
+  const labels = daily.map(d => shortDate(d.date));
+  chartInstances[id] = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        { label: 'Avg prep',     data: rollingAvg(daily.map(d=>d.avgPrep), 7),  borderColor:'#CC0000', backgroundColor:'transparent', borderWidth:2, pointRadius:0, tension:.3 },
+        { label: 'Avg delivery', data: rollingAvg(daily.map(d=>d.avgDeliv), 7), borderColor:'#1a4fa8', backgroundColor:'transparent', borderWidth:2, pointRadius:0, tension:.3 },
+        { label: 'Avg E2E',      data: rollingAvg(daily.map(d=>d.avgE2E), 7),   borderColor:'#888888', backgroundColor:'transparent', borderWidth:2, pointRadius:0, tension:.3, borderDash:[4,3] },
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false, animation: { duration: 400 },
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { display: true, position: 'top', align: 'end', labels: { boxWidth:10, font:{size:11}, color:'#666' } },
+        tooltip: { callbacks: { label: c => ` ${c.dataset.label}: ${c.parsed.y} min` } }
+      },
+      scales: {
+        x: { ticks: { color:'#888', font:{size:10}, autoSkip:true, maxTicksLimit:12, maxRotation:0 }, grid:{display:false}, border:{display:false} },
+        y: { ticks: { color:'#888', font:{size:11} }, grid:{ color:'#EBEBEB' }, border:{display:false}, title:{display:true,text:'minutes (7-day avg)',color:'#999',font:{size:10}} }
+      }
+    }
+  });
+}
+
+function volumeTrendChart(id, daily) {
+  if (chartInstances[id]) chartInstances[id].destroy();
+  const ctx = document.getElementById(id);
+  if (!ctx) return;
+  const labels = daily.map(d => shortDate(d.date));
+  chartInstances[id] = new Chart(ctx, {
+    data: {
+      labels,
+      datasets: [
+        { type:'bar',  label:'Orders',             data: daily.map(d=>d.orders), backgroundColor:'#F5CBCB', borderRadius:3, borderSkipped:false, order:2 },
+        { type:'line', label:'7-day avg', data: rollingAvg(daily.map(d=>d.orders), 7), borderColor:'#CC0000', backgroundColor:'transparent', borderWidth:2, pointRadius:0, tension:.3, order:1 },
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false, animation: { duration: 400 },
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { display: true, position: 'top', align: 'end', labels: { boxWidth:10, font:{size:11}, color:'#666' } },
+        tooltip: { callbacks: { label: c => ` ${c.dataset.label}: ${c.parsed.y}` } }
+      },
+      scales: {
+        x: { ticks: { color:'#888', font:{size:10}, autoSkip:true, maxTicksLimit:12, maxRotation:0 }, grid:{display:false}, border:{display:false} },
+        y: { ticks: { color:'#888', font:{size:11} }, grid:{ color:'#EBEBEB' }, border:{display:false} }
+      }
+    }
+  });
 }
 
 // ─────────────────────────────────────────────
@@ -570,6 +796,120 @@ function render() {
       delivDelay: round1(avg(v.delivs)) > overallAvgDeliv,
     }))
     .sort((a, b) => (b.avgPrep + b.avgDeliv) - (a.avgPrep + a.avgDeliv));
+
+  // Trend / comparative analysis — always full history, channel/brand
+  // filters applied, date-range picker ignored (see getFilteredForTrends).
+  const trendData = getFilteredForTrends();
+  const dailySeries   = buildDailySeries(trendData);
+  const weeklySeries  = buildWeeklySeries(trendData);
+  const monthlySeries = buildMonthlySeries(trendData);
+  const wow = windowComparison(trendData, 7);
+  const mom = windowComparison(trendData, 30);
+
+  function trendKPI(label, cur, prev, unit, invert) {
+    return `
+      <div class="kpi">
+        <div class="kpi-label">${label}</div>
+        <div class="kpi-value">${round1(cur)}${unit ? `<sup>${unit}</sup>` : ''}</div>
+        <div class="kpi-sub">${changeBadge(cur, prev, invert)} vs prior period</div>
+      </div>`;
+  }
+
+  const wowSection = !wow ? '' : `
+    <div class="section-label">Week-on-week ${wow.hasPrev ? '' : '<span style="color:var(--ink-3);font-weight:400;text-transform:none;">(partial — less than 14 days of history)</span>'}</div>
+    <div style="font-size:12px;color:var(--ink-3);margin:-6px 0 10px;">${formatDate(wow.curFrom)} – ${formatDate(wow.curTo)} vs ${formatDate(wow.prevFrom)} – ${formatDate(wow.prevTo)}</div>
+    <div class="kpi-grid">
+      ${trendKPI('Orders', wow.cur.orders, wow.prev.orders, '', false)}
+      ${trendKPI('Avg prep', wow.cur.avgPrep, wow.prev.avgPrep, 'min', true)}
+      ${trendKPI('Avg delivery', wow.cur.avgDeliv, wow.prev.avgDeliv, 'min', true)}
+      ${trendKPI('Avg E2E', wow.cur.avgE2E, wow.prev.avgE2E, 'min', true)}
+      ${trendKPI('Median prep', wow.cur.medPrep, wow.prev.medPrep, 'min', true)}
+      ${trendKPI('Median delivery', wow.cur.medDeliv, wow.prev.medDeliv, 'min', true)}
+    </div>`;
+
+  const momSection = !mom ? '' : `
+    <div class="section-label">Month-on-month ${mom.hasPrev ? '' : '<span style="color:var(--ink-3);font-weight:400;text-transform:none;">(partial — less than 60 days of history)</span>'}</div>
+    <div style="font-size:12px;color:var(--ink-3);margin:-6px 0 10px;">${formatDate(mom.curFrom)} – ${formatDate(mom.curTo)} vs ${formatDate(mom.prevFrom)} – ${formatDate(mom.prevTo)}</div>
+    <div class="kpi-grid">
+      ${trendKPI('Orders', mom.cur.orders, mom.prev.orders, '', false)}
+      ${trendKPI('Avg prep', mom.cur.avgPrep, mom.prev.avgPrep, 'min', true)}
+      ${trendKPI('Avg delivery', mom.cur.avgDeliv, mom.prev.avgDeliv, 'min', true)}
+      ${trendKPI('Avg E2E', mom.cur.avgE2E, mom.prev.avgE2E, 'min', true)}
+      ${trendKPI('Median prep', mom.cur.medPrep, mom.prev.medPrep, 'min', true)}
+      ${trendKPI('Median delivery', mom.cur.medDeliv, mom.prev.medDeliv, 'min', true)}
+    </div>`;
+
+  const weeklyTableRows = weeklySeries.map((w, i) => {
+    const prev = i > 0 ? weeklySeries[i-1] : null;
+    return `<tr>
+      <td style="font-weight:500">${formatDate(w.weekStart)}</td>
+      <td>${w.orders}</td>
+      <td>${round1(w.avgPrep)}</td>
+      <td>${round1(w.medPrep)}</td>
+      <td>${round1(w.avgDeliv)}</td>
+      <td>${round1(w.medDeliv)}</td>
+      <td>${round1(w.avgE2E)}</td>
+      <td>${prev ? changeBadge(w.avgPrep, prev.avgPrep, true) : '—'}</td>
+    </tr>`;
+  }).reverse().join('');
+
+  const monthlyTableRows = monthlySeries.map((m, i) => {
+    const prev = i > 0 ? monthlySeries[i-1] : null;
+    return `<tr>
+      <td style="font-weight:500">${monthLabel(m.key)}</td>
+      <td>${m.orders}</td>
+      <td>${round1(m.avgPrep)}</td>
+      <td>${round1(m.medPrep)}</td>
+      <td>${round1(m.avgDeliv)}</td>
+      <td>${round1(m.medDeliv)}</td>
+      <td>${round1(m.avgE2E)}</td>
+      <td>${prev ? changeBadge(m.avgPrep, prev.avgPrep, true) : '—'}</td>
+    </tr>`;
+  }).reverse().join('');
+
+  const trendSectionHtml = `
+    <div class="section-label" style="margin-top:32px;">Trends &amp; comparative analysis <span style="color:var(--ink-3);font-weight:400;text-transform:none;letter-spacing:0;">— full history, ${chanVal === 'all' ? 'all channels' : chanVal}${brandVal !== 'all' ? ' · '+brandVal : ''}, independent of the date filter above</span></div>
+    ${wowSection}
+    ${momSection}
+
+    <div class="card-grid-2" style="margin-top:4px;">
+      <div class="card">
+        <div class="card-title">Prep, delivery &amp; E2E trend (7-day rolling average)</div>
+        <div class="chart-wrap" style="height:220px;"><canvas id="trendChart"></canvas></div>
+      </div>
+      <div class="card">
+        <div class="card-title">Daily order volume (with 7-day rolling average)</div>
+        <div class="chart-wrap" style="height:220px;"><canvas id="volumeTrendChart"></canvas></div>
+      </div>
+    </div>
+
+    <div class="card-grid-2" style="margin-top:12px;">
+      <div class="card">
+        <div class="card-title">Weekly summary (most recent first)</div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr>
+              <th>Week of</th><th>Orders</th><th>Avg prep</th><th>Med prep</th>
+              <th>Avg deliv.</th><th>Med deliv.</th><th>Avg E2E</th><th>Prep vs prior wk</th>
+            </tr></thead>
+            <tbody>${weeklyTableRows}</tbody>
+          </table>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-title">Monthly summary (most recent first)</div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr>
+              <th>Month</th><th>Orders</th><th>Avg prep</th><th>Med prep</th>
+              <th>Avg deliv.</th><th>Med deliv.</th><th>Avg E2E</th><th>Prep vs prior mo.</th>
+            </tr></thead>
+            <tbody>${monthlyTableRows}</tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  `;
 
   // ── BUILD HTML ──
   dash.innerHTML = `
@@ -760,12 +1100,16 @@ function render() {
         `).join('')}
       </div>
     </div>
+
+    ${trendSectionHtml}
   `;
 
   // Render charts after DOM update
   requestAnimationFrame(() => {
     distChart('prepChart', preps, '#CC0000');
     distChart('delivChart', delivs, '#CC0000');
+    trendLineChart('trendChart', dailySeries);
+    volumeTrendChart('volumeTrendChart', dailySeries);
   });
 }
 
