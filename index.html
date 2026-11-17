@@ -173,6 +173,34 @@
   .heat-labels { display: grid; grid-template-columns: repeat(13, 1fr); gap: 4px; margin-top: 4px; }
   .heat-label { font-size: 10px; color: var(--ink-3); text-align: center; }
 
+
+  /* ── SIDE NAV ── */
+  .layout { display: flex; align-items: flex-start; }
+  .sidenav {
+    width: 220px; flex-shrink: 0;
+    position: sticky; top: 64px;
+    height: calc(100vh - 64px);
+    overflow-y: auto;
+    background: var(--white);
+    border-right: 1px solid var(--border);
+    padding: 16px 12px;
+  }
+  .nav-group { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.09em; color: var(--ink-3); margin: 14px 10px 6px; }
+  .nav-group:first-child { margin-top: 0; }
+  .nav-item {
+    display: block; width: 100%; text-align: left;
+    font-family: var(--font); font-size: 13px; color: var(--ink-2);
+    background: none; border: none; border-left: 3px solid transparent;
+    border-radius: 6px; padding: 9px 10px; margin-bottom: 2px; cursor: pointer;
+  }
+  .nav-item:hover { background: var(--surface); }
+  .nav-item.active { background: var(--red-bg); color: var(--red-dark); font-weight: 600; border-left-color: var(--red); }
+  .nav-item .nav-count { float: right; font-size: 11px; font-weight: 600; color: var(--red); }
+  .layout main { flex: 1; min-width: 0; margin: 0; max-width: none; }
+  .view { display: none; }
+  .view.active { display: block; }
+  .view-note { font-size: 12px; color: var(--ink-3); background: var(--white); border-left: 3px solid var(--border); border-radius: 6px; padding: 8px 12px; margin-bottom: 4px; }
+
   /* ── LOADING ── */
   #loading { display: flex; align-items: center; justify-content: center; min-height: 60vh; flex-direction: column; gap: 16px; }
   .spinner { width: 36px; height: 36px; border: 3px solid var(--border); border-top-color: var(--red); border-radius: 50%; animation: spin .7s linear infinite; }
@@ -188,10 +216,16 @@
     main { padding: 16px 16px 48px; }
     .card-grid-2, .card-grid-3 { grid-template-columns: 1fr; }
     .kpi-value { font-size: 22px; }
+    .layout { display: block; }
+    .sidenav { width: 100%; height: auto; position: sticky; top: 64px; z-index: 50; display: flex; gap: 6px; overflow-x: auto; padding: 8px 12px; border-right: none; border-bottom: 1px solid var(--border); }
+    .nav-group { display: none; }
+    .nav-item { width: auto; white-space: nowrap; border-left: none; border-bottom: 3px solid transparent; margin: 0; }
+    .nav-item.active { border-bottom-color: var(--red); }
   }
   @media print {
     header { position: static; box-shadow: none; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-    .controls { display: none; }
+    .controls, .sidenav { display: none; }
+    .view { display: block !important; }
     main { padding: 0; }
     .kpi { break-inside: avoid; }
     .card { break-inside: avoid; page-break-inside: avoid; }
@@ -248,10 +282,22 @@
   <div id="status-bar">Loading…</div>
 </div>
 
+<div class="layout">
+<nav class="sidenav" id="sidenav" aria-label="Dashboard sections">
+  <div class="nav-group">Selected dates</div>
+  <button class="nav-item active" data-view="overview">Overview &amp; channels</button>
+  <button class="nav-item" data-view="delays">Delay analysis</button>
+  <button class="nav-item" data-view="orders">Flagged orders &amp; brands <span class="nav-count" id="flag-count"></span></button>
+  <div class="nav-group">Full history</div>
+  <button class="nav-item" data-view="compare">Week &amp; month comparison</button>
+  <button class="nav-item" data-view="trends">Trends</button>
+  <button class="nav-item" data-view="summaries">Weekly &amp; monthly summary</button>
+</nav>
 <main>
   <div id="loading"><div class="spinner"></div><p style="font-size:13px;color:#888">Loading data…</p></div>
   <div id="dashboard" style="display:none"></div>
 </main>
+</div>
 
 <script>
 // ─────────────────────────────────────────────
@@ -916,25 +962,36 @@ function render() {
     </tr>`;
   }).reverse().join('');
 
-  const trendSectionHtml = `
-    <div class="section-label" style="margin-top:32px;">Trends &amp; comparative analysis <span style="color:var(--ink-3);font-weight:400;text-transform:none;letter-spacing:0;">— full history, ${chanVal === 'all' ? 'all channels' : chanVal}${brandVal !== 'all' ? ' · '+brandVal : ''}, independent of the date filter above</span></div>
-    ${wowSection}
-    ${momSection}
+  const trendNote = `
+    <div class="view-note">Full history${chanVal === 'all' ? ', all channels' : ', ' + chanVal}${brandVal !== 'all' ? ' · ' + brandVal : ''} — not affected by the date range above. Channel and brand filters still apply.</div>`;
 
-    <div class="card-grid-2" style="margin-top:4px;">
+  const compareView = `
+    <section class="view" data-view="compare">
+      ${trendNote}
+      ${wowSection}
+      ${momSection}
+    </section>`;
+
+  const trendsView = `
+    <section class="view" data-view="trends">
+      ${trendNote}
+      <div class="section-label">Trends</div>
       <div class="card">
         <div class="card-title">Prep, delivery &amp; E2E trend (7-day rolling average)</div>
-        <div class="chart-wrap" style="height:220px;"><canvas id="trendChart"></canvas></div>
+        <div class="chart-wrap" style="height:280px;"><canvas id="trendChart"></canvas></div>
       </div>
-      <div class="card">
+      <div class="card" style="margin-top:12px;">
         <div class="card-title">Daily order volume (with 7-day rolling average)</div>
-        <div class="chart-wrap" style="height:220px;"><canvas id="volumeTrendChart"></canvas></div>
+        <div class="chart-wrap" style="height:240px;"><canvas id="volumeTrendChart"></canvas></div>
       </div>
-    </div>
+    </section>`;
 
-    <div class="card-grid-2" style="margin-top:12px;">
+  const summariesView = `
+    <section class="view" data-view="summaries">
+      ${trendNote}
+      <div class="section-label">Weekly summary</div>
       <div class="card">
-        <div class="card-title">Weekly summary (most recent first)</div>
+        <div class="card-title">Most recent first</div>
         <div class="table-wrap">
           <table>
             <thead><tr>
@@ -945,8 +1002,9 @@ function render() {
           </table>
         </div>
       </div>
+      <div class="section-label">Monthly summary</div>
       <div class="card">
-        <div class="card-title">Monthly summary (most recent first)</div>
+        <div class="card-title">Most recent first</div>
         <div class="table-wrap">
           <table>
             <thead><tr>
@@ -957,11 +1015,11 @@ function render() {
           </table>
         </div>
       </div>
-    </div>
-  `;
+    </section>`;
 
   // ── BUILD HTML ──
   dash.innerHTML = `
+    <section class="view" data-view="overview">
     <!-- KPIs -->
     <div class="section-label">Overview</div>
     <div class="kpi-grid">
@@ -1056,6 +1114,8 @@ function render() {
       </div>
     </div>
 
+    </section>
+    <section class="view" data-view="delays">
     <!-- Hourly delays -->
     <div class="section-label">Delay hotspots by hour</div>
     <div class="card">
@@ -1105,6 +1165,8 @@ function render() {
       </div>
     </div>
 
+    </section>
+    <section class="view" data-view="orders">
     <!-- Flagged outliers -->
     <div class="section-label">Flagged orders ${outliers.length ? `<span style="color:var(--red);margin-left:6px;">${outliers.length} flagged</span>` : ''}</div>
     <div class="card">
@@ -1150,8 +1212,14 @@ function render() {
       </div>
     </div>
 
-    ${trendSectionHtml}
+    </section>
+    ${compareView}
+    ${trendsView}
+    ${summariesView}
   `;
+  const fc = document.getElementById('flag-count');
+  if (fc) fc.textContent = outliers.length || '';
+  applyView();
 
   // Render charts after DOM update
   requestAnimationFrame(() => {
@@ -1161,6 +1229,31 @@ function render() {
     volumeTrendChart('volumeTrendChart', dailySeries);
   });
 }
+
+// ─────────────────────────────────────────────
+//  SIDE NAV / VIEWS
+// ─────────────────────────────────────────────
+const VIEWS = ['overview','delays','orders','compare','trends','summaries'];
+let activeView = VIEWS.includes(location.hash.slice(1)) ? location.hash.slice(1) : 'overview';
+
+function applyView() {
+  document.querySelectorAll('.view').forEach(v => v.classList.toggle('active', v.dataset.view === activeView));
+  document.querySelectorAll('.nav-item').forEach(b => b.classList.toggle('active', b.dataset.view === activeView));
+  // Charts created while hidden have no size — resize once visible
+  requestAnimationFrame(() => Object.values(chartInstances).forEach(c => c && c.resize && c.resize()));
+}
+
+function setView(name) {
+  activeView = name;
+  history.replaceState(null, '', '#' + name);
+  applyView();
+  window.scrollTo({ top: 0 });
+}
+
+document.getElementById('sidenav').addEventListener('click', e => {
+  const btn = e.target.closest('.nav-item');
+  if (btn) setView(btn.dataset.view);
+});
 
 // ─────────────────────────────────────────────
 //  EVENTS
